@@ -10,7 +10,7 @@ import sys
 import traceback
 
 from hy.version import __version__ as hy_version
-from hy.macros import _hy_macros, load_macros
+from hy.macros import load_macros
 from hy.lex import tokenize
 from hy.compiler import hy_compile
 from hy.core import language
@@ -23,45 +23,45 @@ try:
 except:
     latex_symbols = []
 
-def create_jedhy_completer(env):
-    '''
-    Return code completions from jedhy.
-    '''
-    jedhy = Actions(globals_=env)
-    def complete(txt):
-        jedhy.set_namespace(globals_=env)
-        return jedhy.complete(txt)
-    return complete
-
-
-def create_fallback_completer(env):
-    '''
-    Return simple completions from env listing,
-    macros and compile table
-    '''
-    def complete(txt):
-        try:
-            from hy.compiler import _compile_table, load_stdlib
-            load_stdlib()
-        except:
-            _compile_table = []
-
-        matches = [word for word in env if word.startswith(txt)]
-        for p in list(_hy_macros.values()) + _compile_table:
-            p = filter(lambda x: isinstance(x, str), p.keys())
-            p = [x.replace('_', '-') for x in p]
-            matches.extend([
-                x for x in p
-                if x.startswith(txt) and x not in matches
-            ])
-        return matches
-    return complete
-
 try:
-    from jedhy import Actions
-    create_completer = create_jedhy_completer
+    import jedhy.api
+
+    def create_completer(env):
+        '''
+        Return code completions from jedhy.
+        '''
+        jedhy = jedhy.api.API(globals_=env)
+        def complete(txt):
+            jedhy.set_namespace(globals_=env)
+            return jedhy.complete(txt)
+        return complete
 except:
-    create_completer = create_fallback_completer
+    def create_completer(env):
+        '''
+        Return simple completions from env listing,
+        macros and compile table
+        '''
+        def complete(txt):
+            try:
+                from hy.compiler import _compile_table, load_stdlib
+                load_stdlib()
+            except:
+                _compile_table = []
+
+            matches = [word for word in env if word.startswith(txt)]
+            #
+            # Neither _hy_macros nor _compile_table are defined in
+            # recent (> v0.17) versions of hy
+            #
+            # for p in (_hy_macros.values()) + _compile_table:
+            #     p = filter(lambda x: isinstance(x, str), p.keys())
+            #     p = [x.replace('_', '-') for x in p]
+            #     matches.extend([
+            #         x for x in p
+            #         if x.startswith(txt) and x not in matches
+            #     ])
+            return matches
+        return complete
 
 
 class CalystoHy(MetaKernel):
