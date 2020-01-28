@@ -7,12 +7,14 @@ import __future__  # NOQA
 
 import ast
 import sys
+import types
 import traceback
 
+import hy
 from hy.version import __version__ as hy_version
 from hy.macros import load_macros
 from hy.lex import tokenize
-from hy.compiler import hy_compile
+from hy.compiler import hy_compile, HyASTCompiler
 from hy.core import language
 from metakernel import MetaKernel
 
@@ -30,10 +32,10 @@ try:
         '''
         Return code completions from jedhy.
         '''
-        jedhy = jedhy.api.API(globals_=env)
+        jedhy_completer = jedhy.api.API(globals_=env)
         def complete(txt):
-            jedhy.set_namespace(globals_=env)
-            return jedhy.complete(txt)
+            jedhy_completer.set_namespace(globals_=env)
+            return jedhy_completer.complete(txt)
         return complete
 except:
     def create_completer(env):
@@ -49,17 +51,13 @@ except:
                 _compile_table = []
 
             matches = [word for word in env if word.startswith(txt)]
-            #
-            # Neither _hy_macros nor _compile_table are defined in
-            # recent (> v0.17) versions of hy
-            #
-            # for p in (_hy_macros.values()) + _compile_table:
-            #     p = filter(lambda x: isinstance(x, str), p.keys())
-            #     p = [x.replace('_', '-') for x in p]
-            #     matches.extend([
-            #         x for x in p
-            #         if x.startswith(txt) and x not in matches
-            #     ])
+            for p in (hy.macros.__macros__.values()) + _compile_table:
+                p = filter(lambda x: isinstance(x, str), p.keys())
+                p = [x.replace('_', '-') for x in p]
+                matches.extend([
+                    x for x in p
+                    if x.startswith(txt) and x not in matches
+                ])
             return matches
         return complete
 
@@ -99,9 +97,16 @@ class CalystoHy(MetaKernel):
         '''
         Create the hy environment
         '''
+        self.locals = {"__name__": "__console__", "__doc__": None}
+        module_name = self.locals.get('__name__', '__console__')
+        self.module = sys.modules.setdefault(module_name, types.ModuleType(module_name))
+        self.module.__dict__.update(self.locals)
+        self.locals = self.module.__dict__
+        self.compiler = HyASTCompiler(self.module)
+
         self.env = {}
         super(CalystoHy, self).__init__(*args, **kwargs)
-        [load_macros(m) for m in ['hy.core', 'hy.macros']]
+        # [load_macros(m) for m in [hy.core, hy.macros]]
         if "str" in dir(__builtins__):
             self.env.update({key: getattr(__builtins__, key)
                              for key in dir(__builtins__)})
@@ -131,7 +136,7 @@ class CalystoHy(MetaKernel):
         #### try to parse it:
         try:
             tokens = tokenize(code)
-            _ast = hy_compile(tokens, '', root=ast.Interactive)
+            _ast = hy_compile(tokens, '', root=ast.Interactive, compiler=self.compiler)
             code = compile(_ast, "In [%s]" % self.execution_count, mode="single")
             # calls sys.displayhook:
             eval(code, self.env)
